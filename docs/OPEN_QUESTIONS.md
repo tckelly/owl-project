@@ -1,108 +1,161 @@
 # Open questions
 
-A self-review of the migration after it was finished: things a production version
-would need to answer, or trade-offs worth revisiting. Each one records what we
-noticed, where it is, and what happens today. *Findings* is filled in as we look
-into each one.
+A self-review of the migration after it was finished: what a production version
+would need, and the trade-offs worth revisiting. None of these breaks the brief's rule
+(each step's previous code serves correct traffic against its schema); the
+rolling-deploy test and a manual replay of every pair of steps confirm that.
+
+Each item records what we checked, the evidence, and a proposed solution. Within the
+~2-hour scope the fixes are **deliberately not built**; they are the next steps.
 File and line references are to the last step, `step-4-drop-column`.
 
-Status: **Open** (not yet looked into), **Answered** (findings below, no change),
-**Changed** (findings below, code changed).
+| # | Question | Finding | Proposed |
+|---|---|---|---|
+| 1 | No `lock_timeout` on schema changes | Known issue | `lock_timeout` on every migration, retry on timeout |
+| 2 | The backfill migration imports app code | Trade-off, harmless so far | Freeze a copy of the parser in 0003 |
+| 3 | Parsed columns aren't constrained together | Known gap | Two CHECK constraints in step 4 |
+| 4 | Code rollback isn't covered in the PRs | Answered: one step back is safe and tested | One sentence per PR |
+| 5 | Served format changes during step 2 | Answered: inherent to a correct design | No change |
+| 6 | Step 3 leaves old text in place | Answered: the only correct option | No change |
+| 7 | Downgrading 0004 brings the column back empty | Known gap, worse than first thought | Downgrade refills the text |
+| 8 | 0004 can't be retried if it fails partway | Known issue | Make 0004 safe to run twice |
+
+The evidence below came from a scratch database seeded with `make seed`.
 
 ## 1. No `lock_timeout` on schema changes
 
-**Status:** Open
+**Finding:** known issue. **Proposed:** set `lock_timeout` for every migration.
 
 - **Where:** `migrations/versions/0002_add_parsed_commitment_columns.py:20`,
   `migrations/versions/0004_drop_commitment_text.py:21` and `:24`.
 - **Today:** `ADD COLUMN`, `DROP COLUMN` and `ADD CONSTRAINT` each need an
-  `ACCESS EXCLUSIVE` lock. They are quick once they have the lock, but nothing limits
-  how long they wait for it.
-- **Why it matters:** if a long-running transaction holds a lock on `funds`, the
-  `ALTER` waits behind it, and every later read and write queues behind the `ALTER`.
-  The app stalls even though the migration itself is "metadata-only".
-
-**Findings:**
+  `ACCESS EXCLUSIVE` lock. They are quick once they have it, but nothing limits how
+  long they wait for it. While one waits, every later query on `funds` queues behind
+  it, so a "metadata-only" change can stall the app.
+- **Evidence:** at revision 0003, one session held a read open for 6s, then
+  `make migrate` ran 0004. An ordinary `SELECT count(*) FROM funds` (normally
+  instant) waited **4s**. Repeated with `PGOPTIONS='-c lock_timeout=1s'`: the read
+  waited at most **1s**, the migration failed cleanly (still at 0003), and a retry
+  with no blocker succeeded.
+- **Solution:** in `migrations/env.py`, run `SET lock_timeout = '5s'` on the
+  migration connection, so every migration gets it, and retry `make migrate` on
+  timeout (by hand or in deploy tooling). It also bounds the backfill's waits on row
+  locks. Ship together with item 8: a timeout during 0004's `VALIDATE` causes the
+  stuck state described there.
 
 ## 2. The backfill migration imports app code
 
-**Status:** Open
+**Finding:** trade-off, harmless so far. **Proposed:** freeze a copy of the parser
+in 0003.
 
 - **Where:** `migrations/versions/0003_backfill_parsed_commitment.py:17`
   (`from app.commitment import parse_commitment`).
 - **Today:** deliberate, so there is one parser (see *Decisions* in `docs/PLAN.md`).
-  Every other migration is a frozen snapshot.
-- **Why it matters:** if the parser changes later, running the migrations from
-  scratch (e.g. `make seed`) backfills with the new parser, not the one that ran in
-  production. An old migration's result can change without the migration changing.
-
-**Findings:**
+  Every other migration is a frozen snapshot, as the project's own rules require.
+- **Evidence:** `parse_commitment` is unchanged on every branch; step 2 only added
+  `format_commitment` beside it. But `make seed` runs 0003 every time, so a future
+  change to the parser would silently change what this old migration does, and
+  removing or renaming it would break `make seed` outright.
+- **Solution:** copy `parse_commitment` into 0003, and add a test that the copy and
+  the app's parser agree on all 500 CSV rows (it fails if they drift while both
+  exist). Keeping the import is defensible for a short-lived migration, but freezing
+  it follows the rule the other migrations follow.
 
 ## 3. The parsed columns aren't constrained together
 
-**Status:** Open
+**Finding:** known gap. **Proposed:** two CHECK constraints in step 4.
 
 - **Where:** `migrations/versions/0004_drop_commitment_text.py:25`.
 - **Today:** the only constraint is `CHECK (currency ~ '^[A-Z]{3}$')`. The parser
-  always returns both values or neither, but the database doesn't enforce that.
-- **Why it matters:** a row could have cents with no currency (or the reverse), or
-  negative cents. Once the text column is gone, the database is the only safeguard
-  left, e.g. `CHECK ((commitment_cents IS NULL) = (currency IS NULL))` and
-  `CHECK (commitment_cents >= 0)`.
+  always returns both values or neither, never negative, but the database doesn't
+  enforce it. Once the text column is gone, the database is the only safeguard left.
+- **Evidence:** on the step-4 schema, direct `UPDATE`s with cents and no currency,
+  a currency and no cents, and negative cents were all accepted (a lowercase
+  currency was rejected by the existing CHECK). The API then served `'None 1'` and
+  `'GBP -5'` as commitments. The seeded data has **0** rows that would violate the
+  proposed constraints.
+- **Solution:** in step 4, add
+  `CHECK ((commitment_cents IS NULL) = (currency IS NULL))` and
+  `CHECK (commitment_cents >= 0)`, with the same `NOT VALID` then `VALIDATE` pattern
+  as the currency check. Safe for step-3 code, which can't produce such rows.
 
-**Findings:**
+## 4. Code rollback isn't covered in the PRs
 
-## 4. Rolling back the code isn't covered in the PRs
-
-**Status:** Open
+**Finding:** answered: rolling the code back one step is safe, and already tested.
+**Proposed:** one sentence per PR.
 
 - **Where:** `docs/PR_DESCRIPTIONS.md` (all four PRs).
-- **Today:** each PR explains rolling forward. None says whether you can roll the
-  code back to the previous step if the new version misbehaves.
-- **Why it matters:** a rolling deploy is often rolled back. From reading the code,
-  rolling back looks safe at every step until 0004 runs, but that isn't stated or
-  tested.
-
-**Findings:**
+- **Today:** each PR explains rolling forward, not back.
+- **Evidence:** rolling step N's code back to step N-1 leaves N-1's code running
+  against step N's schema and data, which is exactly the mid-rollout situation the
+  rolling-deploy test covers, including each version reading the other's writes.
+  Rolling back **two** steps is not safe: on step-3 data, step 3 updated F-1001 to
+  `$7 USD`, and step-1 code still served `USD 10,000,000` from the stale text.
+  Step 4 has no code change, so rolling back its code is trivial; its schema change
+  is covered by item 7.
+- **Solution:** add to each PR: "Rollback: one step back is safe (the rolling-deploy
+  test covers it); further back is not."
 
 ## 5. The served format changes during the step-2 rollout
 
-**Status:** Open
+**Finding:** answered: the cost of a correct design. **Proposed:** no change.
 
 - **Where:** `served()` in `app/db.py` (from step 2).
 - **Today:** step-1 instances return the raw text (`$15,000,000 USD`); step-2
-  instances format it from the parsed columns (`USD 15,000,000`). Same value, but a
-  client can see the format change from one request to the next. Called out in the
+  instances format it from the parsed columns (`USD 15,000,000`). Called out in the
   step-2 PR.
-- **Why it matters:** clients that compare or display the string could notice. The
-  alternative is to keep serving the text until step 3, at the cost of an extra step
-  or of step 2 not really "reading the new columns".
-
-**Findings:**
+- **Evidence:** seen in the manual replay of step 1 against step 2: the same fund
+  read `$2,000 USD` from one and `USD 2,000` from the other. The value is the same,
+  and either string parses back to it, so re-submitting it works on both.
+- **Why not change it:** the alternative is for step 2 to serve the text when present
+  and fall back to the formatted value. That breaks during the step-3 rollout: step 3
+  no longer writes the text, so step-2 instances would serve stale text for rows
+  step 3 updated (the stale read shown in item 4). Clients that need a stable value
+  should use `commitment_cents` and `currency`; the string is for compatibility.
 
 ## 6. Step 3 leaves old text in place on update
 
-**Status:** Open
+**Finding:** answered: the only correct option. **Proposed:** no change.
 
 - **Where:** `update_fund()` in `app/db.py` (from step 3).
-- **Today:** step-3 updates stop writing `commitment`, so an updated row keeps its
-  old text, which no longer matches its parsed columns. Nothing reads it, and step 4
-  drops it.
-- **Why it matters:** if step 3 were rolled back to step 1 (which reads the text),
-  updated rows would show stale values. Setting the text to NULL would at least make
-  the mismatch obvious.
-
-**Findings:**
+- **Today:** step-3 updates don't write `commitment`, so an updated row keeps text
+  that no longer matches its parsed columns. Nothing reads it, and step 4 drops it.
+- **Evidence:** NULLing the text isn't possible. Step-3 code must keep working after
+  step 4 drops the column, and on that schema
+  `UPDATE funds SET commitment = NULL` fails with
+  `column "commitment" of relation "funds" does not exist`. No version within one
+  step of step 3 reads the stale text; only a two-step rollback would (item 4).
 
 ## 7. Downgrading 0004 brings the column back empty
 
-**Status:** Open
+**Finding:** known gap, worse than first thought. **Proposed:** the downgrade refills
+the text.
 
 - **Where:** `migrations/versions/0004_drop_commitment_text.py:32`.
-- **Today:** the downgrade re-adds `commitment` as an empty, nullable column. Step-3
-  code works with that; earlier steps' code would read NULL for every row.
-- **Why it matters:** the downgrade could refill the column with
-  `format_commitment(commitment_cents, currency)`, so that rolling back further than
-  step 3 still shows correct values.
+- **Today:** the downgrade re-adds `commitment` as an empty, nullable column. The
+  README lists restoring it as out of scope.
+- **Evidence:** at 0004, 475 of 500 funds have a commitment. After downgrading to
+  0003, the text column holds **0** of them. Downgrading further to 0001 also drops
+  the parsed columns, so **every commitment is lost**.
+- **Solution:** after re-adding the column, fill it from `commitment_cents` and
+  `currency` in the `USD 1,250,000.50` format, written in SQL so the migration stays
+  self-contained. Every downgrade then keeps the data, and step-1/step-0 code reads
+  correct values again.
 
-**Findings:**
+## 8. 0004 can't be retried if it fails partway
+
+**Finding:** known issue (found while testing item 1). **Proposed:** make 0004 safe
+to run twice.
+
+- **Where:** `migrations/versions/0004_drop_commitment_text.py:21`–`29`.
+- **Today:** 0004 commits the column drop and the `NOT VALID` constraint before
+  `VALIDATE` runs in its own transaction. Alembic records the new revision only
+  after `VALIDATE`.
+- **Evidence:** with one bad currency already in the table, `make migrate` failed at
+  `VALIDATE` (`CheckViolation`). Afterwards the column was gone, the constraint
+  existed unvalidated, and the version still read **0003**. After fixing the bad row,
+  the retry failed with `UndefinedColumn`. The database is stuck until someone fixes
+  it by hand (e.g. `alembic stamp`).
+- **Solution:** make each statement safe to repeat: `DROP COLUMN IF EXISTS
+  commitment`, and `DROP CONSTRAINT IF EXISTS funds_currency_iso` before
+  `ADD CONSTRAINT`. A retry then finishes the job. Ship together with item 1.

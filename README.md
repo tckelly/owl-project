@@ -75,6 +75,9 @@ database, and checks that each version's writes read back through the other.
   need batches)
 - Restoring the text on downgrade past step 4: the column comes back empty
 - Frontend tests (the API is tested against a real Postgres)
+- Production hardening of the migrations (lock timeouts, retry-safe migrations,
+  extra constraints): investigated, with evidence and proposed fixes, in
+  `docs/OPEN_QUESTIONS.md`
 
 Decisions and the step log are in `docs/PLAN.md`; questions worth revisiting are in
 `docs/OPEN_QUESTIONS.md`. Both are the same on every branch.

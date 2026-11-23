@@ -188,4 +188,4 @@ One row per step, added when the step is done. Detail is in each branch's commit
 - [x] Steps 0–4 (rolling-deploy test passing on each)
 - [x] README: out of scope, the step sequence, the rolling-deploy test
 - [x] Push all five branches; open stacked PRs #1–#4
-- [ ] Investigate `docs/OPEN_QUESTIONS.md` and record findings
+- [x] Investigate `docs/OPEN_QUESTIONS.md` and record findings (fixes proposed, deliberately not built)
