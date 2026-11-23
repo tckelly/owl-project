@@ -10,7 +10,9 @@ the status checklist. Update the checklist there as work completes.
 
 - macOS 12 (Intel). Homebrew has no bottles for this OS — avoid brew installs that
   compile large deps (e.g. colima/qemu). No Docker.
-- Postgres runs natively; the app connects only via `DATABASE_URL`
+- Postgres 16 runs natively via `brew services` (binaries in
+  `/usr/local/opt/postgresql@16/bin`, data in `/usr/local/var/postgresql@16`,
+  trust auth on localhost); the app connects only via `DATABASE_URL`
   (default `postgresql://localhost:5432/owl`).
 - Python 3.14 (use a venv), Node 22 (nvm).
 

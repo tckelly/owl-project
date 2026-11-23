@@ -32,10 +32,27 @@ Source brief: `docs/ASSESSMENT.md`. Data: `data/funds.csv` (500 rows).
 - **API response keeps `commitment` as a string** (derived from new columns once they
   are the source of truth) plus structured fields, so the old frontend keeps working.
 - **`make seed` is identical on every branch:** drop DB → migrate to the *first*
-  revision only → load CSV as text. `make migrate` then applies the rest
-  (so the backfill path is exercised on replay).
+  revision → load CSV as text → migrate to head. Works whatever order reviewers run
+  targets in, and the backfill path is still exercised. `make migrate` is idempotent.
+- **One Python commitment parser** (pure function), used by app dual-writes *and*
+  imported by the step-2 backfill migration. Rejected: a duplicate SQL parser (two
+  parsers to keep in agreement) and a Postgres function + trigger (too complex).
+  Accepted cost: the backfill migration isn't a frozen snapshot of the parser.
+
+- **Alembic for migrations** (standard, reviewers know it, supports Python migrations
+  for the backfill). Migrations use plain SQL via `op.execute`; app code does not use
+  SQLAlchemy. The app never checks the schema revision at startup, so older code can
+  `make serve` against a newer DB. Edge case: Alembic errors ("Can't locate revision")
+  if `make migrate` runs from an *older* checkout against a newer DB — README says to
+  migrate from the newest checkout, as a real deploy would. Rejected: a custom runner
+  (less common, more to explain).
+- **Python deps verified** to install as prebuilt wheels on Python 3.14 / macOS 12
+  Intel: fastapi, uvicorn, psycopg[binary], alembic, pytest, httpx.
+
+This Decisions section is the lightweight decision log — no separate ADRs.
 - **DB connection only via `DATABASE_URL`** (default `postgresql://localhost:5432/owl`).
   Postgres installed natively (Postgres.app or `brew install postgresql@16`); no Docker.
+- **npm, not pnpm** — single small frontend, npm already installed and universal for reviewers.
 - **Parsing rules:** bare `$` → USD (assumption); case/whitespace-insensitive;
   code may precede or follow the amount; `~` (approximate) parsed, flag dropped;
   `''`, `Not reported`, `Undisclosed`, `TBD` → NULL cents and NULL currency.
@@ -80,8 +97,12 @@ distinction between missing-value reasons.
 
 ## Status
 
+**Next action:** Part 1 setup — `.venv`, Makefile (`seed`/`migrate`/`serve`/`test`),
+Alembic, separate `owl_test` DB for tests. First failing test: after seed,
+`GET /funds` returns 500 funds with `commitment` text exactly as in the CSV.
+
 - [x] Brief read, data profiled, plan agreed
-- [ ] Install Postgres natively; confirm `psql` works
+- [x] Install Postgres natively; confirm `psql` works (Postgres 16 via brew services)
 - [ ] Part 1: API (tests first), seed/migrate/serve Makefile, React table + form → commit to `main`
 - [ ] Commitment parser (test-first)
 - [ ] Step 1 branch + PR
