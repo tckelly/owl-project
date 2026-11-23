@@ -8,8 +8,7 @@ from app.commitment import format_commitment, parse_commitment
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/owl")
 
-# Reads come from the parsed columns; the text column is still written (below)
-# because step-1 instances read it during this step's rollout.
+# The commitment text column is no longer read or written (step 4 drops it).
 READ_COLUMNS = """fund_id, fund_name, manager, strategy, vintage_year,
                   commitment_cents, currency, reported_at"""
 
@@ -34,8 +33,7 @@ def list_funds():
 
 
 def with_parsed_commitment(fund):
-    """Dual-write (temporary, until step 3): keep the commitment text and also store
-    its parsed cents and currency, so either can be the source of truth."""
+    """Store the request's commitment string as its parsed cents and currency."""
     cents, currency = parse_commitment(fund["commitment"])
     return {**fund, "commitment_cents": cents, "currency": currency}
 
@@ -46,10 +44,10 @@ def create_fund(fund):
         return served(conn.execute(
             f"""
             INSERT INTO funds (fund_id, fund_name, manager, strategy, vintage_year,
-                               commitment, commitment_cents, currency, reported_at)
+                               commitment_cents, currency, reported_at)
             VALUES (%(fund_id)s, %(fund_name)s, %(manager)s, %(strategy)s,
-                    %(vintage_year)s, %(commitment)s, %(commitment_cents)s,
-                    %(currency)s, %(reported_at)s)
+                    %(vintage_year)s, %(commitment_cents)s, %(currency)s,
+                    %(reported_at)s)
             ON CONFLICT (fund_id) DO NOTHING
             RETURNING {READ_COLUMNS}
             """,
@@ -65,8 +63,8 @@ def update_fund(fund):
             UPDATE funds
             SET fund_name = %(fund_name)s, manager = %(manager)s,
                 strategy = %(strategy)s, vintage_year = %(vintage_year)s,
-                commitment = %(commitment)s, commitment_cents = %(commitment_cents)s,
-                currency = %(currency)s, reported_at = %(reported_at)s
+                commitment_cents = %(commitment_cents)s, currency = %(currency)s,
+                reported_at = %(reported_at)s
             WHERE fund_id = %(fund_id)s
             RETURNING {READ_COLUMNS}
             """,
