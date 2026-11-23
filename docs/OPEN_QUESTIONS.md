@@ -27,7 +27,7 @@ The evidence below came from a scratch database seeded with `make seed`.
 
 ## 1. No `lock_timeout` on schema changes
 
-**Finding:** known issue. **Fixed** in step 1 (PR #1), merged forward.
+**Finding:** known issue. **Fixed** in step 1 (PR #1).
 
 - **Where:** `migrations/versions/0002_add_parsed_commitment_columns.py:20`,
   `migrations/versions/0004_drop_commitment_text.py:27`.

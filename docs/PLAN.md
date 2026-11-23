@@ -2,8 +2,8 @@
 
 Source brief: `docs/ASSESSMENT.md`. Data: `data/funds.csv` (500 rows).
 
-This file is the same on every branch: it is kept on `main` and merged forward, so it
-stays out of the step PRs' diffs. Earlier per-step versions are in the git history.
+This file is the same on every branch: it is kept on `main`, which every step branch
+is built on, so it stays out of the step PRs' diffs. Earlier per-step versions are in the git history.
 
 ## The brief (summary)
 
@@ -146,10 +146,10 @@ Step notes:
 - Each step: retarget `PREVIOUS_STEP` (commit) → red tests (commit) → green (commit) →
   run `make seed`/`migrate`/`serve` → check in the browser (`make web PORT=…`) →
   update this file (*Step log* row, PR description).
-- Before the push, fixing an earlier step and rebasing later ones onto it was fine
-  (no squashing). Since the push, history is never rewritten: a fix is committed on
-  the earliest affected branch and merged forward one branch at a time, which is why
-  the step branches contain merge commits.
+- A fix is committed (test-first) on the earliest affected branch. Before review, the
+  step branches were rebuilt as a straight line on `main` (no squashing: every code
+  commit kept, only docs-only and merge commits dropped; each branch's files
+  unchanged). Once reviewers have the repo, history is not rewritten.
 
 ## Pull requests
 
@@ -184,6 +184,7 @@ One row per step, added when the step is done. Detail is in each branch's commit
 | docs | `main`, merged forward | plan, PR descriptions and open questions identical on every branch; docs absent from the step PRs' diffs; tests green on every branch | — |
 | fixes | `step-1-expand` (item 1), `step-4-drop-column` (item 8), merged forward | red test committed first for each; suites 36/44/52/53/59; manual replay of every pair unchanged | lock waits were unbounded; 0004 was stuck after a failed `VALIDATE` |
 | reviewer setup | `main` (Python), `step-1-expand` (fresh clone), merged forward | red test first for the clone fix; suites 36/45/53/54/60; `make test` in a fresh GitHub clone | rolling-deploy test needed every branch checked out locally; `make install` required exactly python3.14 (deps need 3.11+) |
+| history | steps 1–4 rebuilt on `main` | each branch's files identical to before; `range-diff` shows every code commit unchanged; tests green on every branch | docs and merge commits outnumbered the code commits in the PRs |
 
 ### Remaining
 
