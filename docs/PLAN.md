@@ -41,9 +41,10 @@ The lightweight decision log — no separate ADRs.
   for the backfill). Migrations use plain SQL via `op.execute`; app code does not use
   SQLAlchemy. Rejected: a custom runner (less common, more to explain). The app never
   checks the schema revision at startup, so older code can `make serve` against a
-  newer DB. Edge case: Alembic errors ("Can't locate revision") if `make migrate` runs
-  from an *older* checkout against a newer DB — README says to migrate from the newest
-  checkout, as a real deploy would.
+  newer DB. `make migrate` runs `scripts/migrate.py`: if the DB is at a revision this
+  checkout doesn't have (a newer step migrated it), it says so and exits 0 instead of
+  Alembic's "Can't locate revision", so `make migrate && make serve` works in the older
+  checkout of a replay. Migrating from the newest checkout is still the real order.
 - **`make seed` is identical on every branch:** drop DB → migrate to the *first*
   revision → load CSV as text → migrate to head. Works whatever order reviewers run
   targets in, and the backfill path is still exercised. `make migrate` is idempotent.
@@ -185,6 +186,7 @@ One row per step, added when the step is done. Detail is in each branch's commit
 | fixes | `step-1-expand` (item 1), `step-4-drop-column` (item 8), merged forward | red test committed first for each; suites 36/44/52/53/59; manual replay of every pair unchanged | lock waits were unbounded; 0004 was stuck after a failed `VALIDATE` |
 | reviewer setup | `main` (Python), `step-1-expand` (fresh clone), merged forward | red test first for the clone fix; suites 36/45/53/54/60; `make test` in a fresh GitHub clone | rolling-deploy test needed every branch checked out locally; `make install` required exactly python3.14 (deps need 3.11+) |
 | history | steps 1–4 rebuilt on `main` | each branch's files identical to before; `range-diff` shows every code commit unchanged; tests green on every branch | docs and merge commits outnumbered the code commits in the PRs |
+| migrate in older checkout | `main` (test-first), steps 1–4 rebased onto it before reviewers had access | suites 38/47/55/56/62; `range-diff` shows every step commit unchanged; PR commit counts and file lists unchanged; replay of every pair with `make migrate && make serve` in the older checkout | `make migrate` failed ("Can't locate revision") in the older checkout of a replay |
 
 ### Remaining
 
@@ -194,3 +196,4 @@ One row per step, added when the step is done. Detail is in each branch's commit
 - [x] Investigate `docs/OPEN_QUESTIONS.md` and record findings
 - [x] Fix items 1 and 8 test-first; the rest stay proposed, deliberately not built
 - [x] `make test` works in a fresh clone; `make install` takes any Python 3.11+
+- [x] `make migrate` is a no-op (exit 0) in an older checkout against a newer DB

@@ -49,9 +49,9 @@ become NULL. Cents are hundredths of the major unit for every currency, JPY incl
 
 ## Checking two consecutive steps
 
-Run `make seed`/`make migrate` from the **newer** checkout, as a real deploy would
-(an older checkout's Alembic doesn't know newer revisions). Then serve both against
-the same database. For example, step 3 against step 4's schema:
+Run `make seed`/`make migrate` from the **newer** checkout, as a real deploy would.
+`make migrate` in the older checkout is then a no-op: it reports that the database is
+ahead of it and exits 0. Then serve both against the same database. For example, step 3 against step 4's schema:
 
 ```sh
 git worktree add ../owl-step-3 step-3-stop-writing-text
