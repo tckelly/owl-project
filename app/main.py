@@ -9,7 +9,7 @@ from app.commitment import parse_commitment
 app = FastAPI(title="Funds")
 
 
-class Fund(BaseModel):
+class FundFields(BaseModel):
     fund_id: str
     fund_name: str
     manager: str
@@ -19,7 +19,14 @@ class Fund(BaseModel):
     reported_at: date
 
 
-class FundWrite(Fund):
+class Fund(FundFields):
+    """Response body: commitment (formatted from the parsed columns) plus both."""
+
+    commitment_cents: int | None
+    currency: str | None
+
+
+class FundWrite(FundFields):
     """Request body. Commitments are validated on write only: rows written by
     previous-step code during a rollout may not parse, and must still list."""
 
