@@ -10,11 +10,14 @@ TEST_DATABASE_URL = os.environ.get(
 )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def seeded_db():
-    """Seed a dedicated test database through the real `make seed` target."""
+    """Fresh test database per test, seeded through the real `make seed` target."""
     os.environ["DATABASE_URL"] = TEST_DATABASE_URL
-    subprocess.run(["make", "seed"], cwd=ROOT, check=True, env=os.environ.copy())
+    subprocess.run(
+        ["make", "seed"], cwd=ROOT, check=True, env=os.environ.copy(),
+        stdout=subprocess.DEVNULL,
+    )
     return TEST_DATABASE_URL
 
 

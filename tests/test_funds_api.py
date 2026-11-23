@@ -26,3 +26,52 @@ def test_list_funds_returns_every_csv_row_with_commitment_as_raw_text(client):
             "commitment": row["commitment"],
             "reported_at": row["reported_at"],
         }
+
+
+NEW_FUND = {
+    "fund_id": "F-9001",
+    "fund_name": "Test Fund I",
+    "manager": "Test Advisors",
+    "strategy": "Buyout",
+    "vintage_year": 2024,
+    "commitment": "$2,500,000 USD",
+    "reported_at": "2026-01-15",
+}
+
+
+def test_create_fund_stores_commitment_text_and_lists_it(client):
+    response = client.post("/funds", json=NEW_FUND)
+
+    assert response.status_code == 201
+    assert response.json() == NEW_FUND
+    listed = {f["fund_id"]: f for f in client.get("/funds").json()}
+    assert listed["F-9001"] == NEW_FUND
+
+
+def test_create_fund_with_existing_id_is_a_conflict(client):
+    response = client.post("/funds", json={**NEW_FUND, "fund_id": "F-1001"})
+
+    assert response.status_code == 409
+
+
+def test_update_fund_replaces_its_fields(client):
+    changes = {**NEW_FUND, "fund_id": "F-1001", "commitment": "£3,000,000 GBP"}
+
+    response = client.put("/funds/F-1001", json=changes)
+
+    assert response.status_code == 200
+    assert response.json() == changes
+    listed = {f["fund_id"]: f for f in client.get("/funds").json()}
+    assert listed["F-1001"] == changes
+
+
+def test_update_unknown_fund_is_not_found(client):
+    response = client.put("/funds/F-0000", json={**NEW_FUND, "fund_id": "F-0000"})
+
+    assert response.status_code == 404
+
+
+def test_update_cannot_change_fund_id(client):
+    response = client.put("/funds/F-1001", json={**NEW_FUND, "fund_id": "F-1002"})
+
+    assert response.status_code == 422
