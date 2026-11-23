@@ -5,7 +5,13 @@ from alembic import context
 from sqlalchemy import create_engine
 
 url = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/owl")
-engine = create_engine(url.replace("postgresql://", "postgresql+psycopg://", 1))
+
+# A migration waiting for a lock makes every later query on the table queue
+# behind it. Give up after 5s instead (the transaction rolls back) and retry.
+engine = create_engine(
+    url.replace("postgresql://", "postgresql+psycopg://", 1),
+    connect_args={"options": "-c lock_timeout=5s"},
+)
 
 with engine.connect() as connection:
     context.configure(connection=connection)
