@@ -121,3 +121,19 @@ def test_update_fund_rejects_unparseable_commitment(client, seeded_db):
 
     assert response.status_code == 422
     assert stored_commitment(seeded_db, "F-1001")[0] == "USD 10,000,000"
+
+
+def test_lists_unparseable_commitment_written_by_previous_step_code(client, seeded_db):
+    """Step-0 instances still accept any text during the step-1 rollout."""
+    import psycopg
+
+    with psycopg.connect(seeded_db) as conn:
+        conn.execute(
+            "UPDATE funds SET commitment = %s WHERE fund_id = %s", ("about 5m", "F-1001")
+        )
+
+    response = client.get("/funds")
+
+    assert response.status_code == 200
+    listed = {fund["fund_id"]: fund for fund in response.json()}
+    assert listed["F-1001"]["commitment"] == "about 5m"
