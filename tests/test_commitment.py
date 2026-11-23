@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.commitment import parse_commitment
+from app.commitment import format_commitment, parse_commitment
 
 CSV_PATH = Path(__file__).resolve().parent.parent / "data" / "funds.csv"
 
@@ -68,3 +68,25 @@ def test_parses_every_commitment_in_the_csv():
     assert len(results) == 500
     assert sum(1 for cents, _ in results if cents is None) == 25
     assert all((cents is None) == (currency is None) for cents, currency in results)
+
+
+@pytest.mark.parametrize(
+    "cents, currency, expected",
+    [
+        (1_500_000_000, "USD", "USD 15,000,000"),
+        (1_000_000_025, "USD", "USD 10,000,000.25"),
+        (150, "GBP", "GBP 1.50"),
+        (5, "JPY", "JPY 0.05"),
+        (0, "EUR", "EUR 0"),
+        (None, None, ""),
+    ],
+)
+def test_formats_commitment(cents, currency, expected):
+    assert format_commitment(cents, currency) == expected
+
+
+def test_formatting_round_trips_every_commitment_in_the_csv():
+    with CSV_PATH.open(newline="") as f:
+        parsed = [parse_commitment(row["commitment"]) for row in csv.DictReader(f)]
+
+    assert all(parse_commitment(format_commitment(*value)) == value for value in parsed)
