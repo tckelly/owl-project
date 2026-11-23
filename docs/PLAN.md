@@ -160,9 +160,9 @@ distinction between missing-value reasons.
 
 ## Status
 
-**Next action:** step 3 — cut `step-3-stop-writing-text` from
-`step-2-backfill-read-new` and follow *Working practice* (see notes under *Migration
-sequence*). Then step 4, README, and the submission steps above.
+**Next action:** step 4 — cut `step-4-drop-column` from `step-3-stop-writing-text`
+and follow *Working practice* (see notes under *Migration sequence*). Then README and
+the submission steps above.
 
 ### Step log
 
@@ -176,11 +176,12 @@ PRs for all steps are pending the push (see *Submission*).
 | parser | `main` | 30 unit tests incl. all 500 CSV rows (25 missing) | 15 distinct shapes in the data |
 | 1 | `step-1-expand` | 43 tests incl. rolling vs `main`; targets; curl; browser: 422 then valid add, DB dual-written | `response_model` ran the write validator on GET (fixed: `FundWrite`); browser check found raw-JSON 422 in the form (fixed, step-2 rebased) |
 | 2 | `step-2-backfill-read-new` | 51 tests incl. rolling vs step 1, backfill repair; targets; browser: edit shows formatted value, DB has text + parsed | served commitment text changes format (same value); backfill race guard needed |
-| 3 | `step-3-stop-writing-text` | | |
+| 3 | `step-3-stop-writing-text` | 52 tests incl. rolling vs step 2, API with `commitment` dropped; targets; curl; browser: add + edit, DB text NULL on new row, parsed columns written | updates leave old text stale (not NULLed) — unread, dropped in step 4 |
 | 4 | `step-4-drop-column` | | |
 
 ### Remaining
 
-- [ ] Steps 3 and 4 (rolling-deploy test passing on each)
+- [x] Step 3 (rolling-deploy test passing)
+- [ ] Step 4 (rolling-deploy test passing)
 - [ ] README: add out of scope, the step sequence, and the rolling-deploy test
 - [ ] Push, open stacked PRs, add collaborators (confirm with user first; see *Submission*)

@@ -25,7 +25,13 @@ changes (e.g. `$15,000,000 USD` becomes `USD 15,000,000`; same value).
 
 ## step-3-stop-writing-text → step-2-backfill-read-new
 
-_To write when step 3 is done._
+Stops the API from writing the `commitment` text column: requests still take a
+`commitment` string, but only its parsed `commitment_cents`/`currency` are stored, and
+nothing reads or writes the text any more. No migration. Safe alone: step-2
+instances already read only the parsed columns, so text left NULL (new rows) or stale
+(updated rows) is never served. Requires step 2 fully rolled out, since step-1
+instances still read the text. A test runs this code with the column dropped, which
+prepares step 4.
 
 ## step-4-drop-column → step-3-stop-writing-text
 
