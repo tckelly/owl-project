@@ -54,6 +54,9 @@ Source brief: `docs/ASSESSMENT.md`. Data: `data/funds.csv` (500 rows).
   still list. The step-2 backfill stores NULL cents/currency for such rows and logs
   their fund_ids rather than failing the migration (comment that choice in the code).
   The seed data always parses (tested).
+- **Served commitment string** (from step 2): `format_commitment(cents, currency)`,
+  e.g. `USD 1,250,000.50`; whole amounts omit `.00`; missing → `''`. It parses back to
+  the same value, so old frontends and clients can re-submit it.
 - **Rolling-deploy test** (`tests/test_rolling_deploy.py`): seeds with this checkout,
   runs `PREVIOUS_STEP`'s API from a git worktree beside this one on the same DB, and
   checks each version's writes read back through the other. Update `PREVIOUS_STEP`
@@ -107,16 +110,17 @@ distinction between missing-value reasons.
 
 ## Status
 
-**Next action:** cut `step-2-backfill-read-new` from `step-1-expand`. Set
-`PREVIOUS_STEP = "step-1-expand"` in the rolling-deploy test first, then: backfill
-all rows (NULL + log for unparseable), read from the new columns.
+**Next action:** cut `step-3-stop-writing-text` from `step-2-backfill-read-new`. Set
+`PREVIOUS_STEP = "step-2-backfill-read-new"` first, then stop writing `commitment`.
+Inserts must still succeed while the column exists, so step 3's migration makes it
+nullable if needed (it already is). Check each step in the browser before moving on.
 
 - [x] Brief read, data profiled, plan agreed
 - [x] Install Postgres natively; confirm `psql` works (Postgres 16 via brew services)
 - [x] Part 1: API (tests first), seed/migrate/serve Makefile, React table + form → commit to `main`
 - [x] Commitment parser (test-first) — `app/commitment.py`; unparseable input raises `ValueError`
 - [x] Step 1 branch (`step-1-expand`) — PR pending GitHub repo
-- [ ] Step 2 branch + PR
+- [x] Step 2 branch (`step-2-backfill-read-new`) — PR pending GitHub repo
 - [ ] Step 3 branch + PR
 - [ ] Step 4 branch + PR
 - [ ] Rolling-deploy test passing on every branch (replaces `scripts/replay.sh`)
