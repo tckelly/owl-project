@@ -24,8 +24,11 @@ Source brief: `docs/ASSESSMENT.md`. Data: `data/funds.csv` (500 rows).
 
 ## Decisions
 
-- **Keep it simple.** Light TDD: API tests for Part 1; strict test-first for the
-  commitment parser; a replay script that runs step N-1's code against step N's schema.
+This section is the lightweight decision log — no separate ADRs.
+
+- **Keep it simple.** Light TDD: API tests for Part 1 (no frontend tests); strict
+  test-first for the commitment parser; the rolling-deploy test (below) runs step
+  N-1's code against step N's schema.
 - **Stack:** FastAPI + psycopg (plain SQL, explicit column lists — never `SELECT *`
   or column-less `INSERT`), Alembic for migrations, Vite + React frontend.
 - **API has writes** (create/update fund) — without writes the migration is trivial.
@@ -45,24 +48,35 @@ Source brief: `docs/ASSESSMENT.md`. Data: `data/funds.csv` (500 rows).
   `make serve` against a newer DB. Edge case: Alembic errors ("Can't locate revision")
   if `make migrate` runs from an *older* checkout against a newer DB — README says to
   migrate from the newest checkout, as a real deploy would. Rejected: a custom runner
-  (less common, more to explain).
+  (less common, more to explain). `alembic.ini` sets `prepend_sys_path = %(here)s` so
+  migration 0003 can import `app.commitment` when run in-process by `scripts/seed.py`.
+- **Seed SQL is frozen, outside `app/db.py`.** `scripts/seed.py` always loads at
+  revision 0001, so its INSERT must match that schema forever, like a migration.
 - **Python deps verified** to install as prebuilt wheels on Python 3.14 / macOS 12
   Intel: fastapi, uvicorn, psycopg[binary], alembic, pytest, httpx.
 
 - **Unparseable commitments:** from step 1 the API rejects them (422); validation runs
-  on request bodies only, so rows written by step-0 instances during the step-1 rollout
-  still list. The step-2 backfill stores NULL cents/currency for such rows and logs
+  on request bodies only (`FundWrite`; FastAPI also runs validators on `response_model`,
+  which made one bad row 500 the whole list), so rows written by step-0 instances
+  during the step-1 rollout still list. The step-2 backfill stores NULL cents/currency for such rows and logs
   their fund_ids rather than failing the migration (comment that choice in the code).
   The seed data always parses (tested).
 - **Served commitment string** (from step 2): `format_commitment(cents, currency)`,
   e.g. `USD 1,250,000.50`; whole amounts omit `.00`; missing → `''`. It parses back to
-  the same value, so old frontends and clients can re-submit it.
+  the same value, so old frontends and clients can re-submit it. Visible change during
+  the step-2 rollout: step-1 instances show the raw text, step-2 the formatted one
+  (same value) — called out in the step-2 PR.
+- **Backfill race guard:** each 0003 update applies only `WHERE commitment IS NOT
+  DISTINCT FROM <text read>`, so a concurrent step-1 dual-write wins. One transaction
+  over 500 rows is fine here; batching for large tables is out of scope.
 - **Rolling-deploy test** (`tests/test_rolling_deploy.py`): seeds with this checkout,
   runs `PREVIOUS_STEP`'s API from a git worktree beside this one on the same DB, and
   checks each version's writes read back through the other. Update `PREVIOUS_STEP`
-  on each branch. This automates the replay checklist item.
+  on each branch. This automates the replay checklist item. It is green before a
+  step's changes by design (a regression guard); it was verified to fail (500) against a
+  sabotage migration renaming `commitment`. Compares step-0 fields only, commitments
+  by parsed value.
 
-This Decisions section is the lightweight decision log — no separate ADRs.
 - **DB connection only via `DATABASE_URL`** (default `postgresql://localhost:5432/owl`).
   Postgres installed natively (Postgres.app or `brew install postgresql@16`); no Docker.
 - **npm, not pnpm** — single small frontend, npm already installed and universal for reviewers.
@@ -103,6 +117,37 @@ Migrations run before new code rolls out (`make migrate` then `make serve`).
 4 is the minimum: merging any further pair lets old code read stale data or write
 a dropped column.
 
+Notes for the remaining steps:
+- **Step 3:** no migration (`commitment` is already nullable). Requests still take a
+  `commitment` string (parsed into the new columns); the text column is no longer
+  written, so new rows have it NULL. Safe because step-2 instances read only the new
+  columns. Remove the dual-write helper's text half and the "still written" comment.
+- **Step 4:** migration drops `commitment` and adds the currency CHECK. To avoid a long
+  lock, add it `NOT VALID` then `VALIDATE CONSTRAINT`. Downgrade re-adds the column
+  (nullable) — data in it is gone. The rolling test's step-0 contract still holds since
+  responses keep the formatted `commitment` string.
+
+## Working practice
+
+- Each step: retarget `PREVIOUS_STEP` (commit) → red tests (commit) → green (commit) →
+  run `make seed`/`migrate`/`serve` → **check in the browser** (`make web PORT=…`, Playwright)
+  → update this file. The step-1 browser check found raw-JSON 422 errors in the form.
+- Branches are unpushed, so fixing an earlier step and rebasing later ones onto it is
+  fine (no squashing). Once pushed, never rewrite history; fix forward on each branch.
+- `make test` takes ~25s (a fresh seed per test plus two API servers); acceptable.
+- Playwright writes `.playwright-mcp/` (gitignored); delete it after a session.
+
+## Submission (GitHub)
+
+- Repo `tckelly/owl-project` exists: **private, empty**, set as `origin`; `gh` is
+  logged in as `tckelly`.
+- Agreed: finish steps 3–4 and the README, **then** push all five branches at once and
+  open four stacked PRs (step 1 → `main`, step N → step N-1), left open.
+- **Still needed from the user before pushing:** confirm visibility (private + reviewer
+  collaborators, as the brief implies, or public) and the reviewers' GitHub usernames.
+  Ask again before every GitHub action.
+- PR bodies: drafts in `docs/PR_DESCRIPTIONS.md`.
+
 ## Out of scope (state in README)
 
 FX conversion, auth, pagination, deployment config, preserving the `~` flag or the
@@ -110,10 +155,9 @@ distinction between missing-value reasons.
 
 ## Status
 
-**Next action:** cut `step-3-stop-writing-text` from `step-2-backfill-read-new`. Set
-`PREVIOUS_STEP = "step-2-backfill-read-new"` first, then stop writing `commitment`.
-Inserts must still succeed while the column exists, so step 3's migration makes it
-nullable if needed (it already is). Check each step in the browser before moving on.
+**Next action:** step 3 — cut `step-3-stop-writing-text` from
+`step-2-backfill-read-new` and follow *Working practice* (see notes under *Migration
+sequence*). Then step 4, README, and the submission steps above.
 
 - [x] Brief read, data profiled, plan agreed
 - [x] Install Postgres natively; confirm `psql` works (Postgres 16 via brew services)
@@ -124,5 +168,5 @@ nullable if needed (it already is). Check each step in the browser before moving
 - [ ] Step 3 branch + PR
 - [ ] Step 4 branch + PR
 - [ ] Rolling-deploy test passing on every branch (replaces `scripts/replay.sh`)
-- [ ] README (how to run, out of scope); create GitHub repo, push, open PRs, add collaborators
-      (confirm with user before any GitHub action)
+- [ ] README: add out of scope, the step sequence, and the rolling-deploy test
+- [ ] Push, open stacked PRs, add collaborators (confirm with user first; see *Submission*)
