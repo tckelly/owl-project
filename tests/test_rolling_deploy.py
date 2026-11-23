@@ -56,11 +56,24 @@ def serve(checkout, database_url):
     raise RuntimeError(f"API in {checkout} did not start")
 
 
+def branch_ref(repo, branch):
+    """The local branch if there is one, else origin's copy (as in a fresh clone)."""
+    for ref in (branch, f"origin/{branch}"):
+        found = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+            cwd=repo, capture_output=True,
+        )
+        if found.returncode == 0:
+            return ref
+    raise RuntimeError(f"Neither {branch} nor origin/{branch} exists; git fetch?")
+
+
 @pytest.fixture
 def previous_checkout(tmp_path):
     checkout = tmp_path / "previous"
     subprocess.run(
-        ["git", "worktree", "add", "--detach", str(checkout), PREVIOUS_STEP],
+        ["git", "worktree", "add", "--detach", str(checkout),
+         branch_ref(ROOT, PREVIOUS_STEP)],
         cwd=ROOT, check=True, capture_output=True,
     )
     yield checkout
