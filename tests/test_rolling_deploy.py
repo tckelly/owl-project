@@ -125,3 +125,18 @@ def test_previous_and_current_code_agree_on_one_database(apis):
         assert len(listed) == 502
         for fund_id, view in expected.items():
             assert listed[fund_id] == view
+
+
+def test_previous_step_is_found_in_a_fresh_clone(tmp_path):
+    """A fresh clone has only the checked-out branch locally; others are origin/*."""
+    def git(*args):
+        subprocess.run(["git", *args], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "--quiet")
+    git("-c", "user.name=test", "-c", "user.email=test@example.com",
+        "commit", "--allow-empty", "--quiet", "-m", "start")
+    git("branch", "local-step")
+    git("update-ref", "refs/remotes/origin/remote-step", "HEAD")
+
+    assert branch_ref(tmp_path, "local-step") == "local-step"
+    assert branch_ref(tmp_path, "remote-step") == "origin/remote-step"
