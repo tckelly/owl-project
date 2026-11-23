@@ -22,6 +22,10 @@ File and line references are to the last step, `step-4-drop-column`.
 | 7 | Downgrading 0004 brings the column back empty | Known gap, worse than first thought | Downgrade refills the text |
 | 8 | 0004 can't be retried if it fails partway | **Fixed** (step 4) | Make 0004 safe to run twice |
 | 9 | 0004 drops text that 0003 couldn't parse | Known gap, can't occur with this data | 0004 refuses to run while such rows exist |
+| 10 | The backfill doesn't scale to a large table | Known gap, fine for 500 rows | Batched backfill outside the migration |
+| 11 | Step 1 starts rejecting unparseable commitments | Answered: needed to dual-write | No change |
+| 12 | Step 2 both backfills and switches reads | Answered: safe while the backfill is a migration | Split it if the backfill moves out (item 10) |
+| 13 | `make migrate` exits 0 when the database is ahead | Answered: only for a revision it doesn't know, and it says so | No change |
 
 The evidence below came from a scratch database seeded with `make seed`.
 
@@ -79,7 +83,9 @@ in 0003.
 - **Evidence:** on the step-4 schema, direct `UPDATE`s with cents and no currency,
   a currency and no cents, and negative cents were all accepted (a lowercase
   currency was rejected by the existing CHECK). The API then served `'None 1'` and
-  `'GBP -5'` as commitments. The seeded data has **0** rows that would violate the
+  `'GBP -5'` as commitments. Worse, −501 cents was served as `'GBP -6.99'` (a wrong
+  value, not just a negative one), and a currency with no cents as `''` (the
+  currency silently dropped). The seeded data has **0** rows that would violate the
   proposed constraints.
 - **Solution:** in step 4, add
   `CHECK ((commitment_cents IS NULL) = (currency IS NULL))` and
@@ -186,3 +192,79 @@ the text.
 - **Why not built:** about 75 lines of migration and tests (and a second migration
   importing the app's parser) for a case this data can't produce. The operator
   already gets 0003's warning to fix those rows before step 4.
+
+## 10. The backfill doesn't scale to a large table
+
+**Finding:** known gap; fine for 500 rows. **Proposed:** a batched backfill outside
+the migration.
+
+- **Where:** `migrations/versions/0003_backfill_parsed_commitment.py:27`–`52`.
+- **Today:** 0003 reads every row into memory, then updates them all in the
+  migration's single transaction. Each updated row stays locked until that
+  transaction commits, so an app write to a row the backfill has already touched
+  waits for the whole backfill. The 5s `lock_timeout` (item 1) bounds the
+  migration's waits, not the app's.
+- **Evidence:** on the seeded database, 0003 runs in about a second, including Python
+  start-up. Batching the backfill is listed as out of scope in the README.
+- **Solution:** at, say, 100M rows, run the backfill as a separate job after 0002,
+  not as a migration: walk `fund_id` in batches of a few thousand, each batch in its
+  own short transaction, keeping the "only if the text is unchanged" check per row.
+  This is safe to run while step 1 serves traffic, because step 1 already
+  dual-writes: any row changed during the job is already correct. The job can stop
+  and resume from the last `fund_id`, and a final check confirms no row still
+  has text that parses but NULL parsed columns. The 500-row brief didn't need it.
+
+## 11. Step 1 starts rejecting unparseable commitments
+
+**Finding:** answered: needed to dual-write. **Proposed:** no change.
+
+- **Where:** `FundWrite` in `app/main.py` (from step 1).
+- **Today:** step 0 stores any text; from step 1, a write whose commitment doesn't
+  parse gets a 422. That tightens the API in the middle of a migration.
+- **Evidence:** `tests/test_funds_api.py` (step 1): `about 5m` is rejected on create,
+  and `£1 USD` (symbol and code disagree) on update, leaving the stored row
+  unchanged. Rows that don't parse still list, because only request bodies are
+  validated (`Fund` vs `FundWrite`).
+- **Why not change it:** step 1 must store cents and currency next to the text, and
+  there is nothing correct to store for text that doesn't parse. Accepting it would
+  mean writing NULLs that look like "no commitment", and step 4 would then drop the
+  only copy (the risk in item 9). Every value in the data parses, so no real client
+  sending the same shapes is affected; the 422 names the field and the reason.
+
+## 12. Step 2 both backfills and switches reads
+
+**Finding:** answered: safe while the backfill is a migration. **Proposed:** split it
+if the backfill moves out of the migration (item 10).
+
+- **Where:** `migrations/versions/0003_backfill_parsed_commitment.py` and `app/db.py`
+  in step 2.
+- **Today:** one step runs the backfill and ships code that reads the parsed columns.
+- **Why it's safe:** migrations run before the new code rolls out, and 0003 commits
+  every row before any step-2 instance starts. While it runs, only step-1 instances
+  serve, and they read the text. A separate "backfill only" step would be a deploy
+  with no code change, and add no safety.
+- **When to split:** once the backfill is a long-running job (item 10), the code that
+  reads the new columns must not ship until the job has finished and been checked.
+  That becomes its own step: step 2 runs the backfill, step 3 switches reads, and the
+  sequence grows to five.
+
+## 13. `make migrate` exits 0 when the database is ahead
+
+**Finding:** answered: it only skips a revision this checkout doesn't know, and says
+so. **Proposed:** no change.
+
+- **Where:** `scripts/migrate.py` (on `main`, so every branch has it).
+- **Today:** if the database's revision isn't one of this checkout's migrations,
+  `make migrate` prints `Database is at revision …, ahead of this checkout; nothing to
+  apply.` and exits 0, instead of failing with Alembic's "Can't locate revision".
+  That is what lets the older checkout in a replay run `make migrate && make serve`.
+- **Risk:** pointed at the wrong database (one at an unrelated revision), it would
+  also exit 0 rather than fail.
+- **Evidence:** `tests/test_make_migrate.py` sets the revision to `9999`: exit 0, the
+  message printed, the revision untouched. A database at a known revision (or empty)
+  is migrated to head as before. The app never checks the revision at startup, so
+  the skip doesn't hide anything the app depends on.
+- **Why not change it:** a stricter check (exit 0 only if the unknown revision is a
+  newer step of this project) needs the newer migrations, which an older checkout
+  doesn't have. A deploy only runs `make migrate` from the newest checkout, where the
+  skip can't happen.
