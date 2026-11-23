@@ -76,5 +76,5 @@ database, and checks that each version's writes read back through the other.
 - Restoring the text on downgrade past step 4: the column comes back empty
 - Frontend tests (the API is tested against a real Postgres)
 
-Decisions and the step log are in `docs/PLAN.md` (most current on the last step
-branch).
+Decisions and the step log are in `docs/PLAN.md`; questions worth revisiting are in
+`docs/OPEN_QUESTIONS.md`. Both are the same on every branch.
