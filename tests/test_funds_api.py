@@ -75,3 +75,49 @@ def test_update_cannot_change_fund_id(client):
     response = client.put("/funds/F-1001", json={**NEW_FUND, "fund_id": "F-1002"})
 
     assert response.status_code == 422
+
+
+def stored_commitment(database_url, fund_id):
+    import psycopg
+
+    with psycopg.connect(database_url) as conn:
+        return conn.execute(
+            "SELECT commitment, commitment_cents, currency FROM funds WHERE fund_id = %s",
+            (fund_id,),
+        ).fetchone()
+
+
+def test_create_fund_dual_writes_commitment_text_and_parsed_columns(client, seeded_db):
+    client.post("/funds", json={**NEW_FUND, "commitment": "~£1,250,000.50 gbp"})
+
+    assert stored_commitment(seeded_db, "F-9001") == (
+        "~£1,250,000.50 gbp", 125_000_050, "GBP",
+    )
+
+
+def test_update_fund_dual_writes_commitment_text_and_parsed_columns(client, seeded_db):
+    client.put("/funds/F-1001", json={**NEW_FUND, "fund_id": "F-1001", "commitment": "JPY 5,000"})
+
+    assert stored_commitment(seeded_db, "F-1001") == ("JPY 5,000", 500_000, "JPY")
+
+
+def test_missing_commitment_dual_writes_nulls(client, seeded_db):
+    client.post("/funds", json={**NEW_FUND, "commitment": "TBD"})
+
+    assert stored_commitment(seeded_db, "F-9001") == ("TBD", None, None)
+
+
+def test_create_fund_rejects_unparseable_commitment(client, seeded_db):
+    response = client.post("/funds", json={**NEW_FUND, "commitment": "about 5m"})
+
+    assert response.status_code == 422
+    assert stored_commitment(seeded_db, "F-9001") is None
+
+
+def test_update_fund_rejects_unparseable_commitment(client, seeded_db):
+    response = client.put(
+        "/funds/F-1001", json={**NEW_FUND, "fund_id": "F-1001", "commitment": "£1 USD"}
+    )
+
+    assert response.status_code == 422
+    assert stored_commitment(seeded_db, "F-1001")[0] == "USD 10,000,000"
