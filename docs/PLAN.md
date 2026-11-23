@@ -97,14 +97,12 @@ distinction between missing-value reasons.
 
 ## Status
 
-**Next action:** Part 1 — API write tests (create/update fund, commitment as text),
-then React table + form. Done so far: venv, Makefile (`install`/`seed`/`migrate`/`serve`/`test`),
-Alembic revision `0001`, `scripts/seed.py`, `GET /funds` (tests run against `owl_test`
-via the real `make seed`).
+**Next action:** commitment parser, test-first (pure function in `app/commitment.py`),
+covering every shape in the data profile above.
 
 - [x] Brief read, data profiled, plan agreed
 - [x] Install Postgres natively; confirm `psql` works (Postgres 16 via brew services)
-- [ ] Part 1: API (tests first), seed/migrate/serve Makefile, React table + form → commit to `main`
+- [x] Part 1: API (tests first), seed/migrate/serve Makefile, React table + form → commit to `main`
 - [ ] Commitment parser (test-first)
 - [ ] Step 1 branch + PR
 - [ ] Step 2 branch + PR
