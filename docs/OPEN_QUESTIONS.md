@@ -6,29 +6,31 @@ would need, and the trade-offs worth revisiting. None of these breaks the brief'
 rolling-deploy test and a manual replay of every pair of steps confirm that.
 
 Each item records what we checked, the evidence, and a proposed solution. Within the
-~2-hour scope the fixes are **deliberately not built**; they are the next steps.
+~2-hour scope most fixes are **deliberately not built**; they are the next steps.
+Items 1 and 8 were real defects in how the migrations fail, so they were fixed
+test-first (a failing test committed before each fix).
 File and line references are to the last step, `step-4-drop-column`.
 
 | # | Question | Finding | Proposed |
 |---|---|---|---|
-| 1 | No `lock_timeout` on schema changes | Known issue | `lock_timeout` on every migration, retry on timeout |
+| 1 | No `lock_timeout` on schema changes | **Fixed** (step 1) | `lock_timeout` on every migration, retry on timeout |
 | 2 | The backfill migration imports app code | Trade-off, harmless so far | Freeze a copy of the parser in 0003 |
 | 3 | Parsed columns aren't constrained together | Known gap | Two CHECK constraints in step 4 |
 | 4 | Code rollback isn't covered in the PRs | Answered: one step back is safe and tested | One sentence per PR |
 | 5 | Served format changes during step 2 | Answered: inherent to a correct design | No change |
 | 6 | Step 3 leaves old text in place | Answered: the only correct option | No change |
 | 7 | Downgrading 0004 brings the column back empty | Known gap, worse than first thought | Downgrade refills the text |
-| 8 | 0004 can't be retried if it fails partway | Known issue | Make 0004 safe to run twice |
+| 8 | 0004 can't be retried if it fails partway | **Fixed** (step 4) | Make 0004 safe to run twice |
 
 The evidence below came from a scratch database seeded with `make seed`.
 
 ## 1. No `lock_timeout` on schema changes
 
-**Finding:** known issue. **Proposed:** set `lock_timeout` for every migration.
+**Finding:** known issue. **Fixed** in step 1 (PR #1), merged forward.
 
 - **Where:** `migrations/versions/0002_add_parsed_commitment_columns.py:20`,
-  `migrations/versions/0004_drop_commitment_text.py:21` and `:24`.
-- **Today:** `ADD COLUMN`, `DROP COLUMN` and `ADD CONSTRAINT` each need an
+  `migrations/versions/0004_drop_commitment_text.py:27`.
+- **Before:** `ADD COLUMN`, `DROP COLUMN` and `ADD CONSTRAINT` each need an
   `ACCESS EXCLUSIVE` lock. They are quick once they have it, but nothing limits how
   long they wait for it. While one waits, every later query on `funds` queues behind
   it, so a "metadata-only" change can stall the app.
@@ -37,11 +39,15 @@ The evidence below came from a scratch database seeded with `make seed`.
   instant) waited **4s**. Repeated with `PGOPTIONS='-c lock_timeout=1s'`: the read
   waited at most **1s**, the migration failed cleanly (still at 0003), and a retry
   with no blocker succeeded.
-- **Solution:** in `migrations/env.py`, run `SET lock_timeout = '5s'` on the
-  migration connection, so every migration gets it, and retry `make migrate` on
-  timeout (by hand or in deploy tooling). It also bounds the backfill's waits on row
-  locks. Ship together with item 8: a timeout during 0004's `VALIDATE` causes the
-  stuck state described there.
+- **Fix:** `migrations/env.py:13` opens the migration connection with
+  `lock_timeout=5s`, so every migration gets it, including statements in an
+  autocommit block and the backfill's waits on row locks. On timeout the migration's
+  transaction rolls back; retry `make migrate` (by hand or in deploy tooling). Goes
+  with item 8: a timeout during 0004's `VALIDATE` caused the stuck state there.
+- **Test:** `tests/test_migrations.py` rolls back the newest migration, locks `funds`
+  from another connection, and expects the upgrade to fail with a lock timeout,
+  leave the revision unchanged, and succeed on retry once the lock is released.
+  Before the fix it was still waiting after 20s.
 
 ## 2. The backfill migration imports app code
 
@@ -65,7 +71,7 @@ in 0003.
 
 **Finding:** known gap. **Proposed:** two CHECK constraints in step 4.
 
-- **Where:** `migrations/versions/0004_drop_commitment_text.py:25`.
+- **Where:** `migrations/versions/0004_drop_commitment_text.py:31`.
 - **Today:** the only constraint is `CHECK (currency ~ '^[A-Z]{3}$')`. The parser
   always returns both values or neither, never negative, but the database doesn't
   enforce it. Once the text column is gone, the database is the only safeguard left.
@@ -131,7 +137,7 @@ in 0003.
 **Finding:** known gap, worse than first thought. **Proposed:** the downgrade refills
 the text.
 
-- **Where:** `migrations/versions/0004_drop_commitment_text.py:32`.
+- **Where:** `migrations/versions/0004_drop_commitment_text.py:38`.
 - **Today:** the downgrade re-adds `commitment` as an empty, nullable column. The
   README lists restoring it as out of scope.
 - **Evidence:** at 0004, 475 of 500 funds have a commitment. After downgrading to
@@ -144,11 +150,10 @@ the text.
 
 ## 8. 0004 can't be retried if it fails partway
 
-**Finding:** known issue (found while testing item 1). **Proposed:** make 0004 safe
-to run twice.
+**Finding:** known issue (found while testing item 1). **Fixed** in step 4 (PR #4).
 
-- **Where:** `migrations/versions/0004_drop_commitment_text.py:21`–`29`.
-- **Today:** 0004 commits the column drop and the `NOT VALID` constraint before
+- **Where:** `migrations/versions/0004_drop_commitment_text.py:27`–`35`.
+- **Before:** 0004 commits the column drop and the `NOT VALID` constraint before
   `VALIDATE` runs in its own transaction. Alembic records the new revision only
   after `VALIDATE`.
 - **Evidence:** with one bad currency already in the table, `make migrate` failed at
@@ -156,6 +161,11 @@ to run twice.
   existed unvalidated, and the version still read **0003**. After fixing the bad row,
   the retry failed with `UndefinedColumn`. The database is stuck until someone fixes
   it by hand (e.g. `alembic stamp`).
-- **Solution:** make each statement safe to repeat: `DROP COLUMN IF EXISTS
-  commitment`, and `DROP CONSTRAINT IF EXISTS funds_currency_iso` before
-  `ADD CONSTRAINT`. A retry then finishes the job. Ship together with item 1.
+- **Fix:** one `ALTER TABLE` that is safe to repeat: `DROP COLUMN IF EXISTS
+  commitment`, `DROP CONSTRAINT IF EXISTS funds_currency_iso`, then
+  `ADD CONSTRAINT … NOT VALID`. A retry finishes the job, and a single statement
+  takes the table lock once.
+- **Test:** `test_upgrade_can_be_retried_after_failing_validation` in
+  `tests/test_schema.py` reproduces the failure above, fixes the row, and expects
+  the retry to reach 0004 with the column gone and the constraint validated.
+  Before the fix the retry failed with `UndefinedColumn`.

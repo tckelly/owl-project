@@ -12,7 +12,9 @@ Requires only `main`; run the migration before rolling out the code. New writes 
 unparseable commitment now get a 422, but rows that still-running step-0 instances write
 in the meantime are tolerated, and step 2's backfill handles them. The parser
 this step uses (`app/commitment.py`) and its tests were committed on `main` just before
-this step (e6467ed, 73e93ad), so they aren't in this diff.
+this step (e6467ed, 73e93ad), so they aren't in this diff. Migrations now run with a 5s
+`lock_timeout`, so one stuck behind a long transaction fails and is retried instead of
+stalling every query on `funds`.
 
 ## step-2-backfill-read-new → step-1-expand
 
@@ -43,4 +45,5 @@ Safe alone: step-3 code never names the column, and the drop is metadata-only. T
 CHECK is added `NOT VALID` and validated in its own transaction, so the scan doesn't
 block writes. Requires step 3 fully rolled out, since step-2 instances still write the
 text. The drop can't be undone: the downgrade re-adds the column empty, which only
-step-3 code tolerates.
+step-3 code tolerates. If 0004 fails after its first part
+commits (e.g. at `VALIDATE`), re-running it finishes the job.
