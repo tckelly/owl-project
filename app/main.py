@@ -1,9 +1,10 @@
 from datetime import date
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app import db
+from app.commitment import parse_commitment
 
 app = FastAPI(title="Funds")
 
@@ -16,6 +17,12 @@ class Fund(BaseModel):
     vintage_year: int
     commitment: str
     reported_at: date
+
+    @field_validator("commitment")
+    @classmethod
+    def commitment_must_parse(cls, value):
+        parse_commitment(value)  # ValueError -> 422
+        return value
 
 
 @app.get("/funds", response_model=list[Fund])
