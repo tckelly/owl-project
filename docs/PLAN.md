@@ -97,9 +97,10 @@ distinction between missing-value reasons.
 
 ## Status
 
-**Next action:** Part 1 setup — `.venv`, Makefile (`seed`/`migrate`/`serve`/`test`),
-Alembic, separate `owl_test` DB for tests. First failing test: after seed,
-`GET /funds` returns 500 funds with `commitment` text exactly as in the CSV.
+**Next action:** Part 1 — API write tests (create/update fund, commitment as text),
+then React table + form. Done so far: venv, Makefile (`install`/`seed`/`migrate`/`serve`/`test`),
+Alembic revision `0001`, `scripts/seed.py`, `GET /funds` (tests run against `owl_test`
+via the real `make seed`).
 
 - [x] Brief read, data profiled, plan agreed
 - [x] Install Postgres natively; confirm `psql` works (Postgres 16 via brew services)
