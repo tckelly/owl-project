@@ -5,16 +5,14 @@ deployed first; anything else. These are the bodies of the open PRs; edit here f
 
 ## step-1-expand → main
 
-Adds nullable `commitment_cents` and `currency` columns and makes the API write them
-alongside the existing `commitment` text; reads are unchanged. Safe alone: the columns
-are nullable with no default (no table rewrite), and step-0 code never references them.
-Requires only `main`; run the migration before rolling out the code. New writes with an
-unparseable commitment now get a 422, but rows that still-running step-0 instances write
-in the meantime are tolerated, and step 2's backfill handles them. The parser
-this step uses (`app/commitment.py`) and its tests were committed on `main` just before
-this step (e6467ed, 73e93ad), so they aren't in this diff. Migrations now run with a 5s
-`lock_timeout`, so one stuck behind a long transaction fails and is retried instead of
-stalling every query on `funds`.
+Adds nullable `commitment_cents` and `currency` columns and dual-writes them alongside
+the `commitment` text; reads are unchanged. Safe alone: the columns are nullable with no
+default (no table rewrite) and step-0 code never references them; requires only `main`,
+with the migration run before the code rolls out. Writes with an unparseable commitment
+now get a 422, and rows that step-0 instances write meanwhile are fixed by step 2's
+backfill. Migrations now run with a 5s `lock_timeout` so they can't stall queries on
+`funds`; the parser and its tests landed on `main` just before this step, so they aren't
+in this diff.
 
 ## step-2-backfill-read-new → step-1-expand
 
@@ -40,10 +38,8 @@ prepares step 4.
 ## step-4-drop-column → step-3-stop-writing-text
 
 Drops the `commitment` text column and adds `CHECK (currency ~ '^[A-Z]{3}$')`; no app
-changes, since the API already derives the `commitment` string from the parsed columns.
-Safe alone: step-3 code never names the column, and the drop is metadata-only. The
-CHECK is added `NOT VALID` and validated in its own transaction, so the scan doesn't
-block writes. Requires step 3 fully rolled out, since step-2 instances still write the
-text. The drop can't be undone: the downgrade re-adds the column empty, which only
-step-3 code tolerates. If 0004 fails after its first part
-commits (e.g. at `VALIDATE`), re-running it finishes the job.
+code changes. Safe alone: step-3 code never names the column, the drop is metadata-only,
+and the CHECK is added `NOT VALID` then validated separately, so the scan doesn't block
+writes. Requires step 3 fully rolled out, since step-2 instances still write the text.
+The drop is one-way (the downgrade re-adds the column empty), and 0004 is safe to re-run
+if it fails partway.
