@@ -187,6 +187,7 @@ One row per step, added when the step is done. Detail is in each branch's commit
 | reviewer setup | `main` (Python), `step-1-expand` (fresh clone), merged forward | red test first for the clone fix; suites 36/45/53/54/60; `make test` in a fresh GitHub clone | rolling-deploy test needed every branch checked out locally; `make install` required exactly python3.14 (deps need 3.11+) |
 | history | steps 1–4 rebuilt on `main` | each branch's files identical to before; `range-diff` shows every code commit unchanged; tests green on every branch | docs and merge commits outnumbered the code commits in the PRs |
 | migrate in older checkout | `main` (test-first), steps 1–4 rebased onto it before reviewers had access | suites 38/47/55/56/62; `range-diff` shows every step commit unchanged; PR commit counts and file lists unchanged; replay of every pair with `make migrate && make serve` in the older checkout | `make migrate` failed ("Can't locate revision") in the older checkout of a replay |
+| open questions 10–13 | `main`, merged forward | every finding in items 1–9 re-run against the current branches and still holds | added: backfill at scale, step 1's 422, step 2's two changes, `make migrate` skip; item 3: −501 cents served as `GBP -6.99` |
 
 ### Remaining
 
