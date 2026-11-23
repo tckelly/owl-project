@@ -8,7 +8,6 @@ export DATABASE_URL
 .PHONY: install seed migrate serve test web
 
 install:
-	@$(PYTHON) -c 'import sys; sys.exit(sys.version_info < (3, 11) and "Python 3.11+ required; run make install PYTHON=python3.x")'
 	$(PYTHON) -m venv .venv
 	.venv/bin/pip install -r requirements.txt
 	cd web && npm install
