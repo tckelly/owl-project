@@ -49,6 +49,16 @@ Source brief: `docs/ASSESSMENT.md`. Data: `data/funds.csv` (500 rows).
 - **Python deps verified** to install as prebuilt wheels on Python 3.14 / macOS 12
   Intel: fastapi, uvicorn, psycopg[binary], alembic, pytest, httpx.
 
+- **Unparseable commitments:** from step 1 the API rejects them (422); validation runs
+  on request bodies only, so rows written by step-0 instances during the step-1 rollout
+  still list. The step-2 backfill stores NULL cents/currency for such rows and logs
+  their fund_ids rather than failing the migration (comment that choice in the code).
+  The seed data always parses (tested).
+- **Rolling-deploy test** (`tests/test_rolling_deploy.py`): seeds with this checkout,
+  runs `PREVIOUS_STEP`'s API from a git worktree beside this one on the same DB, and
+  checks each version's writes read back through the other. Update `PREVIOUS_STEP`
+  on each branch. This automates the replay checklist item.
+
 This Decisions section is the lightweight decision log — no separate ADRs.
 - **DB connection only via `DATABASE_URL`** (default `postgresql://localhost:5432/owl`).
   Postgres installed natively (Postgres.app or `brew install postgresql@16`); no Docker.
@@ -97,18 +107,18 @@ distinction between missing-value reasons.
 
 ## Status
 
-**Next action:** cut `step-1-expand` from `main`. First test: step-0 code (current
-`main` API) works against the step-1 schema; then add nullable `commitment_cents` /
-`currency` and dual-write them via `app/commitment.py`.
+**Next action:** cut `step-2-backfill-read-new` from `step-1-expand`. Set
+`PREVIOUS_STEP = "step-1-expand"` in the rolling-deploy test first, then: backfill
+all rows (NULL + log for unparseable), read from the new columns.
 
 - [x] Brief read, data profiled, plan agreed
 - [x] Install Postgres natively; confirm `psql` works (Postgres 16 via brew services)
 - [x] Part 1: API (tests first), seed/migrate/serve Makefile, React table + form → commit to `main`
 - [x] Commitment parser (test-first) — `app/commitment.py`; unparseable input raises `ValueError`
-- [ ] Step 1 branch + PR
+- [x] Step 1 branch (`step-1-expand`) — PR pending GitHub repo
 - [ ] Step 2 branch + PR
 - [ ] Step 3 branch + PR
 - [ ] Step 4 branch + PR
-- [ ] Replay script (`scripts/replay.sh`) verifying each consecutive pair
+- [ ] Rolling-deploy test passing on every branch (replaces `scripts/replay.sh`)
 - [ ] README (how to run, out of scope); create GitHub repo, push, open PRs, add collaborators
       (confirm with user before any GitHub action)
