@@ -1,6 +1,8 @@
 import csv
 from pathlib import Path
 
+from app.commitment import format_commitment, parse_commitment
+
 CSV_PATH = Path(__file__).resolve().parent.parent / "data" / "funds.csv"
 
 
@@ -9,7 +11,18 @@ def csv_rows():
         return list(csv.DictReader(f))
 
 
-def test_list_funds_returns_every_csv_row_with_commitment_as_raw_text(client):
+def as_served(fund):
+    """The API serves commitment re-formatted from the parsed columns, plus both."""
+    cents, currency = parse_commitment(fund["commitment"])
+    return {
+        **fund,
+        "commitment": format_commitment(cents, currency),
+        "commitment_cents": cents,
+        "currency": currency,
+    }
+
+
+def test_list_funds_serves_every_csv_row_from_parsed_commitment_columns(client):
     response = client.get("/funds")
 
     assert response.status_code == 200
@@ -17,7 +30,7 @@ def test_list_funds_returns_every_csv_row_with_commitment_as_raw_text(client):
     rows = csv_rows()
     assert len(funds) == len(rows) == 500
     for row in rows:
-        assert funds[row["fund_id"]] == {
+        assert funds[row["fund_id"]] == as_served({
             "fund_id": row["fund_id"],
             "fund_name": row["fund_name"],
             "manager": row["manager"],
@@ -25,7 +38,7 @@ def test_list_funds_returns_every_csv_row_with_commitment_as_raw_text(client):
             "vintage_year": int(row["vintage_year"]),
             "commitment": row["commitment"],
             "reported_at": row["reported_at"],
-        }
+        })
 
 
 NEW_FUND = {
@@ -43,9 +56,9 @@ def test_create_fund_stores_commitment_text_and_lists_it(client):
     response = client.post("/funds", json=NEW_FUND)
 
     assert response.status_code == 201
-    assert response.json() == NEW_FUND
+    assert response.json() == as_served(NEW_FUND)
     listed = {f["fund_id"]: f for f in client.get("/funds").json()}
-    assert listed["F-9001"] == NEW_FUND
+    assert listed["F-9001"] == as_served(NEW_FUND)
 
 
 def test_create_fund_with_existing_id_is_a_conflict(client):
@@ -60,9 +73,9 @@ def test_update_fund_replaces_its_fields(client):
     response = client.put("/funds/F-1001", json=changes)
 
     assert response.status_code == 200
-    assert response.json() == changes
+    assert response.json() == as_served(changes)
     listed = {f["fund_id"]: f for f in client.get("/funds").json()}
-    assert listed["F-1001"] == changes
+    assert listed["F-1001"] == as_served(changes)
 
 
 def test_update_unknown_fund_is_not_found(client):
@@ -122,18 +135,3 @@ def test_update_fund_rejects_unparseable_commitment(client, seeded_db):
     assert response.status_code == 422
     assert stored_commitment(seeded_db, "F-1001")[0] == "USD 10,000,000"
 
-
-def test_lists_unparseable_commitment_written_by_previous_step_code(client, seeded_db):
-    """Step-0 instances still accept any text during the step-1 rollout."""
-    import psycopg
-
-    with psycopg.connect(seeded_db) as conn:
-        conn.execute(
-            "UPDATE funds SET commitment = %s WHERE fund_id = %s", ("about 5m", "F-1001")
-        )
-
-    response = client.get("/funds")
-
-    assert response.status_code == 200
-    listed = {fund["fund_id"]: fund for fund in response.json()}
-    assert listed["F-1001"]["commitment"] == "about 5m"
