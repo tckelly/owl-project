@@ -6,6 +6,10 @@ DROP COLUMN is metadata-only (no table rewrite).
 The CHECK is added NOT VALID (brief lock, no scan), committed, then validated in a
 separate transaction, which scans the table without blocking reads or writes.
 
+Because the first part commits before VALIDATE, a failed VALIDATE (bad data, or a
+lock timeout) leaves this half-applied with the revision still at 0003. Every
+statement is safe to repeat, so retrying the migration finishes it.
+
 Revision ID: 0004
 Revises: 0003
 """
@@ -18,11 +22,13 @@ depends_on = None
 
 
 def upgrade():
-    op.execute("ALTER TABLE funds DROP COLUMN commitment")
     op.execute(
         """
-        ALTER TABLE funds ADD CONSTRAINT funds_currency_iso
-            CHECK (currency ~ '^[A-Z]{3}$') NOT VALID
+        ALTER TABLE funds
+            DROP COLUMN IF EXISTS commitment,
+            DROP CONSTRAINT IF EXISTS funds_currency_iso,
+            ADD CONSTRAINT funds_currency_iso
+                CHECK (currency ~ '^[A-Z]{3}$') NOT VALID
         """
     )
     with op.get_context().autocommit_block():
