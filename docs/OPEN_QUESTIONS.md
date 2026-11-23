@@ -21,6 +21,7 @@ File and line references are to the last step, `step-4-drop-column`.
 | 6 | Step 3 leaves old text in place | Answered: the only correct option | No change |
 | 7 | Downgrading 0004 brings the column back empty | Known gap, worse than first thought | Downgrade refills the text |
 | 8 | 0004 can't be retried if it fails partway | **Fixed** (step 4) | Make 0004 safe to run twice |
+| 9 | 0004 drops text that 0003 couldn't parse | Known gap, can't occur with this data | 0004 refuses to run while such rows exist |
 
 The evidence below came from a scratch database seeded with `make seed`.
 
@@ -169,3 +170,19 @@ the text.
   `tests/test_schema.py` reproduces the failure above, fixes the row, and expects
   the retry to reach 0004 with the column gone and the constraint validated.
   Before the fix the retry failed with `UndefinedColumn`.
+
+## 9. 0004 drops text that 0003 couldn't parse
+
+**Finding:** known gap; deliberately not built.
+
+- **Where:** `migrations/versions/0003_backfill_parsed_commitment.py` stores NULL
+  (and logs a warning) for text it can't parse; `0004` then drops the column.
+- **Risk:** that text would be lost. It can only exist if step-0 instances wrote
+  unparseable text during the step-1 rollout; the CSV has none (all 500 rows parse),
+  and from step 1 the API rejects it (422).
+- **Proposed:** before dropping, 0004 refuses to run if any row has NULL parsed
+  columns and text that doesn't parse. Not "any NULL parsed columns": step 3 leaves
+  old text in place when a write sets a missing value, so that would block safe deploys.
+- **Why not built:** about 75 lines of migration and tests (and a second migration
+  importing the app's parser) for a case this data can't produce. The operator
+  already gets 0003's warning to fix those rows before step 4.

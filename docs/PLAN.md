@@ -183,6 +183,7 @@ One row per step, added when the step is done. Detail is in each branch's commit
 | review | all | tests green on every branch (36/43/51/52/57); manual replay of every consecutive pair on one DB (older seeds, newer migrates, cross-writes read back) | follow-ups recorded in `docs/OPEN_QUESTIONS.md` |
 | docs | `main`, merged forward | plan, PR descriptions and open questions identical on every branch; docs absent from the step PRs' diffs; tests green on every branch | — |
 | fixes | `step-1-expand` (item 1), `step-4-drop-column` (item 8), merged forward | red test committed first for each; suites 36/44/52/53/59; manual replay of every pair unchanged | lock waits were unbounded; 0004 was stuck after a failed `VALIDATE` |
+| reviewer setup | `main` (Python), `step-1-expand` (fresh clone), merged forward | red test first for the clone fix; suites 36/45/53/54/60; `make test` in a fresh GitHub clone | rolling-deploy test needed every branch checked out locally; `make install` required exactly python3.14 (deps need 3.11+) |
 
 ### Remaining
 
@@ -191,3 +192,4 @@ One row per step, added when the step is done. Detail is in each branch's commit
 - [x] Push all five branches; open stacked PRs #1–#4
 - [x] Investigate `docs/OPEN_QUESTIONS.md` and record findings
 - [x] Fix items 1 and 8 test-first; the rest stay proposed, deliberately not built
+- [x] `make test` works in a fresh clone; `make install` takes any Python 3.11+
