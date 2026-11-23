@@ -46,3 +46,15 @@ def parse_commitment(text):
     units = int(match["units"].replace(",", ""))
     cents = int((match["fraction"] or "0").ljust(2, "0"))
     return units * 100 + cents, currency
+
+
+def format_commitment(cents, currency):
+    """Inverse of parse_commitment: (cents, currency) -> e.g. 'USD 1,250,000.50'.
+
+    Whole amounts omit the fraction; missing values format as ''.
+    """
+    if cents is None:
+        return ""
+    units, fraction = divmod(cents, 100)
+    amount = f"{units:,}" + (f".{fraction:02d}" if fraction else "")
+    return f"{currency} {amount}"
