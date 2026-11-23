@@ -32,6 +32,13 @@ def test_backfill_repairs_rows_written_by_step0_code_during_step1_rollout(seeded
     config = Config(str(ROOT / "alembic.ini"))
     command.downgrade(config, "0002")
     with psycopg.connect(seeded_db) as conn:
+        # Downgrading past 0004 re-adds the text column empty; restore the CSV text
+        # to recreate the state 0003 ran against during the step-2 rollout.
+        with CSV_PATH.open(newline="") as f:
+            conn.cursor().executemany(
+                "UPDATE funds SET commitment = %(commitment)s WHERE fund_id = %(fund_id)s",
+                list(csv.DictReader(f)),
+            )
         # Step-0 code writes only the text, leaving parsed columns NULL or stale.
         conn.execute("UPDATE funds SET commitment_cents = NULL, currency = NULL WHERE fund_id = 'F-1001'")
         conn.execute("UPDATE funds SET commitment = '£5,000 GBP' WHERE fund_id = 'F-1002'")

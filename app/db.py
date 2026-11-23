@@ -8,7 +8,7 @@ from app.commitment import format_commitment, parse_commitment
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/owl")
 
-# The commitment text column is no longer read or written (step 4 drops it).
+# The commitment text column was dropped in step 4; the API derives it (served).
 READ_COLUMNS = """fund_id, fund_name, manager, strategy, vintage_year,
                   commitment_cents, currency, reported_at"""
 
