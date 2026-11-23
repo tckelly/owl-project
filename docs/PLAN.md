@@ -131,7 +131,7 @@ Notes for the remaining steps:
 
 - Each step: retarget `PREVIOUS_STEP` (commit) → red tests (commit) → green (commit) →
   run `make seed`/`migrate`/`serve` → **check in the browser** (`make web PORT=…`, Playwright)
-  → update this file. The step-1 browser check found raw-JSON 422 errors in the form.
+  → update this file (*Step log* row, checklist, Next action, PR draft). The step-1 browser check found raw-JSON 422 errors in the form.
 - Branches are unpushed, so fixing an earlier step and rebasing later ones onto it is
   fine (no squashing). Once pushed, never rewrite history; fix forward on each branch.
 - `make test` takes ~25s (a fresh seed per test plus two API servers); acceptable.
@@ -158,6 +158,21 @@ distinction between missing-value reasons.
 **Next action:** step 3 — cut `step-3-stop-writing-text` from
 `step-2-backfill-read-new` and follow *Working practice* (see notes under *Migration
 sequence*). Then step 4, README, and the submission steps above.
+
+### Step log
+
+One row per step, added when the step is done. Detail is in each branch's commits.
+
+| Step | Branch | Verified | Findings |
+|---|---|---|---|
+| 0 | `main` | API tests; seed/migrate/serve; browser: list, add, edit | — |
+| parser | `main` | 30 unit tests incl. all 500 CSV rows (25 missing) | 15 distinct shapes in the data |
+| 1 | `step-1-expand` | 43 tests incl. rolling vs `main` (also shown to fail on a breaking migration); targets; curl; browser: 422 then valid add, DB dual-written | `response_model` ran the write validator on GET (fixed: `FundWrite`); form showed raw-JSON 422 (fixed, step-2 rebased) |
+| 2 | `step-2-backfill-read-new` | 51 tests incl. rolling vs step 1, backfill repair; targets; browser: edit shows formatted value, DB has text + parsed | served commitment text changes format (same value); backfill race guard needed |
+| 3 | `step-3-stop-writing-text` | | |
+| 4 | `step-4-drop-column` | | |
+
+### Checklist
 
 - [x] Brief read, data profiled, plan agreed
 - [x] Install Postgres natively; confirm `psql` works (Postgres 16 via brew services)
