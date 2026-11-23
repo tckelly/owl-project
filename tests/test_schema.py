@@ -3,6 +3,7 @@ from pathlib import Path
 
 import psycopg
 import pytest
+import sqlalchemy.exc
 from alembic import command
 from alembic.config import Config
 
@@ -52,3 +53,23 @@ def test_downgrade_re_adds_the_text_column_empty_and_drops_the_check(seeded_db):
             "SELECT count(*) FROM funds WHERE commitment IS NOT NULL"
         ).fetchone() == (0,)
     set_currency(seeded_db, "usd")
+
+
+def test_upgrade_can_be_retried_after_failing_validation(seeded_db):
+    """0004 commits the drop before VALIDATE runs, so a failed VALIDATE (or a lock
+    timeout there) leaves it half-applied at revision 0003. A retry must finish it."""
+    config = Config(str(ROOT / "alembic.ini"))
+    command.downgrade(config, "0003")
+    set_currency(seeded_db, "us$")
+    with pytest.raises(sqlalchemy.exc.IntegrityError, match="funds_currency_iso"):
+        command.upgrade(config, "head")
+
+    set_currency(seeded_db, "USD")
+    command.upgrade(config, "head")
+
+    assert "commitment" not in columns(seeded_db)
+    with psycopg.connect(seeded_db) as conn:
+        assert conn.execute(
+            "SELECT convalidated FROM pg_constraint WHERE conname = 'funds_currency_iso'"
+        ).fetchall() == [(True,)]
+        assert conn.execute("SELECT version_num FROM alembic_version").fetchone() == ("0004",)
