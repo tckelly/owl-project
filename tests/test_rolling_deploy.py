@@ -18,7 +18,7 @@ import pytest
 
 from app.commitment import parse_commitment
 
-PREVIOUS_STEP = "step-1-expand"
+PREVIOUS_STEP = "step-2-backfill-read-new"
 
 ROOT = Path(__file__).resolve().parent.parent
 PYTHON = ROOT / ".venv" / "bin" / "python"

@@ -52,7 +52,7 @@ NEW_FUND = {
 }
 
 
-def test_create_fund_stores_commitment_text_and_lists_it(client):
+def test_create_fund_lists_it(client):
     response = client.post("/funds", json=NEW_FUND)
 
     assert response.status_code == 201
@@ -100,24 +100,39 @@ def stored_commitment(database_url, fund_id):
         ).fetchone()
 
 
-def test_create_fund_dual_writes_commitment_text_and_parsed_columns(client, seeded_db):
+def test_create_fund_writes_parsed_columns_and_leaves_text_null(client, seeded_db):
     client.post("/funds", json={**NEW_FUND, "commitment": "~£1,250,000.50 gbp"})
 
-    assert stored_commitment(seeded_db, "F-9001") == (
-        "~£1,250,000.50 gbp", 125_000_050, "GBP",
-    )
+    assert stored_commitment(seeded_db, "F-9001") == (None, 125_000_050, "GBP")
 
 
-def test_update_fund_dual_writes_commitment_text_and_parsed_columns(client, seeded_db):
+def test_update_fund_writes_parsed_columns_and_leaves_text_untouched(client, seeded_db):
     client.put("/funds/F-1001", json={**NEW_FUND, "fund_id": "F-1001", "commitment": "JPY 5,000"})
 
-    assert stored_commitment(seeded_db, "F-1001") == ("JPY 5,000", 500_000, "JPY")
+    assert stored_commitment(seeded_db, "F-1001") == ("USD 10,000,000", 500_000, "JPY")
 
 
-def test_missing_commitment_dual_writes_nulls(client, seeded_db):
+def test_missing_commitment_writes_nulls(client, seeded_db):
     client.post("/funds", json={**NEW_FUND, "commitment": "TBD"})
 
-    assert stored_commitment(seeded_db, "F-9001") == ("TBD", None, None)
+    assert stored_commitment(seeded_db, "F-9001") == (None, None, None)
+
+
+def test_api_works_without_the_commitment_text_column(client, seeded_db):
+    """Step 4 drops the column; this step's code must not reference it."""
+    import psycopg
+
+    with psycopg.connect(seeded_db) as conn:
+        conn.execute("ALTER TABLE funds DROP COLUMN commitment")
+
+    assert client.get("/funds").status_code == 200
+    created = client.post("/funds", json=NEW_FUND)
+    assert created.status_code == 201
+    assert created.json() == as_served(NEW_FUND)
+    changes = {**NEW_FUND, "fund_id": "F-1001", "commitment": "£3,000,000 GBP"}
+    updated = client.put("/funds/F-1001", json=changes)
+    assert updated.status_code == 200
+    assert updated.json() == as_served(changes)
 
 
 def test_create_fund_rejects_unparseable_commitment(client, seeded_db):
@@ -133,5 +148,5 @@ def test_update_fund_rejects_unparseable_commitment(client, seeded_db):
     )
 
     assert response.status_code == 422
-    assert stored_commitment(seeded_db, "F-1001")[0] == "USD 10,000,000"
+    assert stored_commitment(seeded_db, "F-1001") == ("USD 10,000,000", 1_000_000_000, "USD")
 
