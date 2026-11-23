@@ -7,7 +7,8 @@ branch cut from the previous one, with a stacked PR.
 
 ## Requirements
 
-Postgres 16 on localhost, Python 3.14, Node 22. The app connects only through
+Postgres 16 on localhost, Python 3.11+ (developed on 3.14; pick one with
+`make install PYTHON=python3.12`), Node 22. The app connects only through
 `DATABASE_URL` (default `postgresql://localhost:5432/owl`).
 
 ## Run
