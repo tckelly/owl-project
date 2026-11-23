@@ -97,13 +97,14 @@ distinction between missing-value reasons.
 
 ## Status
 
-**Next action:** commitment parser, test-first (pure function in `app/commitment.py`),
-covering every shape in the data profile above.
+**Next action:** cut `step-1-expand` from `main`. First test: step-0 code (current
+`main` API) works against the step-1 schema; then add nullable `commitment_cents` /
+`currency` and dual-write them via `app/commitment.py`.
 
 - [x] Brief read, data profiled, plan agreed
 - [x] Install Postgres natively; confirm `psql` works (Postgres 16 via brew services)
 - [x] Part 1: API (tests first), seed/migrate/serve Makefile, React table + form → commit to `main`
-- [ ] Commitment parser (test-first)
+- [x] Commitment parser (test-first) — `app/commitment.py`; unparseable input raises `ValueError`
 - [ ] Step 1 branch + PR
 - [ ] Step 2 branch + PR
 - [ ] Step 3 branch + PR
