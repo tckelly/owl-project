@@ -28,8 +28,11 @@ async function saveFund(fund, editing) {
   });
   const body = await response.json();
   if (!response.ok) {
+    // FastAPI sends a string for HTTPException, a list of errors for validation.
     throw new Error(
-      typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail)
+      typeof body.detail === "string"
+        ? body.detail
+        : body.detail.map((e) => `${e.loc.at(-1)}: ${e.msg}`).join("; ")
     );
   }
   return body;
