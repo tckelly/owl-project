@@ -16,7 +16,7 @@ seed:
 	$(PY) scripts/seed.py
 
 migrate:
-	$(PY) -m alembic upgrade head
+	$(PY) scripts/migrate.py
 
 serve:
 	$(PY) -m uvicorn app.main:app --port $(PORT)
